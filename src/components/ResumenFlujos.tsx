@@ -1,8 +1,8 @@
 import React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import type { ResumenEjecutivo } from '../db/inventario';
-import { formatearFechaSlash } from '../lib/periodo';
 import { usePeriodo } from '../periodo';
+import { formatearFechaSlash } from '../lib/periodo';
 import { formatearCLP } from '../lib/stock';
 import { useTema } from '../theme';
 
@@ -14,7 +14,7 @@ export function ResumenFlujos({ resumen, onCambiarFechas }: { resumen: ResumenEj
     <Text style={{ color: c.texto, fontSize: 17, fontWeight: '800' }}>Movimientos · {periodo.etiqueta}</Text>
     <Text style={{ color: c.texto, fontWeight: '600' }}>{periodo.detalle}</Text>
     {periodo.desde === null ? <Text style={{ color: c.textoSecundario }}>{resumen.primeraFecha !== null && resumen.ultimaFecha !== null
-      ? `Registros: ${formatearFechaSlash(resumen.primeraFecha)} al ${formatearFechaSlash(resumen.ultimaFecha)}`
+      ? `Registros: ${formatearFechaSlash(resumen.primeraFecha)} — ${formatearFechaSlash(resumen.ultimaFecha)}`
       : 'Sin movimientos registrados'}</Text> : null}
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
       <View style={{ flex: 1, minWidth: 115, gap: 4 }}>

@@ -20,7 +20,7 @@ export function FilaMovimiento({
     ? paleta.acentoSuave
     : esEntrada
       ? paleta.verdeSuave
-      : paleta.rojoSuave;
+      : paleta.salidaSuave;
 
   const tituloTipo = esAjuste
     ? m.entrada_corregida_id

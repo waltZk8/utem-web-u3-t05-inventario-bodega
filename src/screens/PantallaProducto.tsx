@@ -12,10 +12,8 @@ import {
   Vibration,
   View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { useSQLiteContext } from 'expo-sqlite';
 import { BarraSubpantalla } from '../components/BarraSubpantalla';
-import { SelectorSegmentado } from '../components/SelectorSegmentado';
 import { ElegirEntradaCorreccion } from '../components/ElegirEntradaCorreccion';
 import { Boton } from '../components/Boton';
 import { Cargando, ErrorEstado, Vacio } from '../components/Estados';
@@ -33,14 +31,12 @@ import { estadoDeStock, ETIQUETA_ESTADO, formatearCLP, validarMovimiento } from 
 import { coloresEstado, useTema } from '../theme';
 
 const LOTES_RAPIDOS = [1, 5, 10, 24] as const;
-const MOTIVOS_RAPIDOS = ['Error al ingresar', 'Conteo físico', 'Merma / daño'] as const;
 
 /**
  * Ficha ejecutiva y operativa del producto:
  * - Operaciones de Entrada (recepción) y Salida (despacho/venta) con presets
  *   rápidos (+1, +5, +10, +24), vista previa en CLP y nota opcional.
- * - Edición en sitio de Nombre, Precio CLP, Stock Mínimo y ajuste directo de
- *   stock (sin registrar salida).
+ * - Edición en sitio de Nombre, Precio CLP y Stock Mínimo.
  * - Historial auditable con precio unitario histórico congelado.
  */
 export function PantallaProducto({
@@ -64,7 +60,6 @@ export function PantallaProducto({
   const [editMinimo, setEditMinimo] = useState('5');
   const [editStock, setEditStock] = useState('0');
   const [motivoAjuste, setMotivoAjuste] = useState('');
-  const [modoCorreccion, setModoCorreccion] = useState<'conteo' | 'entrada'>('conteo');
   const [entradaCorregir, setEntradaCorregir] = useState<Movimiento | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -85,7 +80,6 @@ export function PantallaProducto({
         setEditStock(String(p.stock));
         setMotivoAjuste('');
         setEntradaCorregir(null);
-        setModoCorreccion('conteo');
         setMovs(await historial(db, codigo, 5));
       }
     } catch (e) {
@@ -165,20 +159,8 @@ export function PantallaProducto({
 
   const guardarEdicion = async () => {
     if (!producto || enVuelo.current) return;
-    if (!editStock.trim()) {
-      setError('Indica la cantidad de stock; usa 0 si no hay unidades.');
-      return;
-    }
-    const nuevoStock = Number(editStock);
-    const cambiaStock = nuevoStock !== producto.stock;
-    if (cambiaStock && modoCorreccion === 'entrada' && !entradaCorregir) {
-      setError('Selecciona la entrada que deseas corregir o cambia a "Ajuste directo".');
-      return;
-    }
-    const motivoFinal =
-      motivoAjuste.trim() ||
-      (modoCorreccion === 'entrada' ? 'Corrección de entrada' : 'Corrección directa de stock');
-
+    if (!editStock.trim()) { setError('Indica la cantidad corregida; usa 0 si no hay unidades.'); return; }
+    if (Number(editStock) !== producto.stock && !entradaCorregir) { setError('Selecciona la entrada que quedó mal registrada.'); return; }
     enVuelo.current = true;
     Keyboard.dismiss();
     setOcupado(true);
@@ -189,23 +171,11 @@ export function PantallaProducto({
         nombre: editNombre,
         minimo: Number(editMinimo),
         precio: Number(editPrecio || '0'),
-        stock: nuevoStock,
-        stockAnterior: producto.stock,
-        motivo: motivoFinal,
-        correccionEntrada:
-          modoCorreccion === 'entrada' && entradaCorregir
-            ? { id: entradaCorregir.id, cantidadAnterior: entradaCorregir.cantidad }
-            : undefined,
+        stock: Number(editStock), stockAnterior: producto.stock, motivo: motivoAjuste,
+        correccionEntrada: entradaCorregir ? { id: entradaCorregir.id, cantidadAnterior: entradaCorregir.cantidad } : undefined,
       });
       setEditandoFicha(false);
-      if (cambiaStock) {
-        Vibration.vibrate(25);
-        setAviso(
-          `Stock corregido de ${producto.stock} → ${nuevoStock} u. (registrado como ajuste, sin salida).`
-        );
-      } else {
-        setAviso('Ficha del producto actualizada.');
-      }
+      setAviso('Ficha del producto actualizada.');
       await refrescar();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al actualizar el producto.');
@@ -234,6 +204,10 @@ export function PantallaProducto({
   const subtotalMovimiento =
     Number.isInteger(cantNum) && cantNum > 0 ? cantNum * (producto.precio ?? 0) : 0;
   const valorizadoActual = producto.stock * (producto.precio ?? 0);
+  const stockEditado = editStock.trim() ? Number(editStock) : NaN;
+  const cambiaCantidad = stockEditado !== producto.stock;
+  const correccionValida = Number.isSafeInteger(stockEditado) && stockEditado >= 0 &&
+    (!cambiaCantidad || (!!entradaCorregir && entradaCorregir.cantidad + stockEditado - producto.stock >= 0 && !!motivoAjuste.trim()));
 
   return (
     <View style={[s.raiz, { backgroundColor: paleta.fondo }]}>
@@ -253,7 +227,7 @@ export function PantallaProducto({
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
         >
-          <Pressable onPress={() => Keyboard.dismiss()} style={s.bloque}>
+          <View style={s.bloque}>
             {/* Tarjeta principal del producto */}
             <View
               style={[
@@ -269,11 +243,16 @@ export function PantallaProducto({
                   </Text>
                 </View>
                 <Pressable
-                  onPress={() => setEditandoFicha((v) => !v)}
+                  disabled={ocupado}
+                  onPress={() => {
+                    setEditNombre(producto.nombre); setEditPrecio(String(producto.precio)); setEditMinimo(String(producto.minimo));
+                    setEditStock(String(producto.stock)); setMotivoAjuste(''); setEntradaCorregir(null); setError(null); setAviso(null);
+                    setEditandoFicha((v) => !v);
+                  }}
                   style={[s.btnEditar, { backgroundColor: paleta.acentoSuave }]}
                 >
                   <Text style={[s.txtEditar, { color: paleta.acento }]}>
-                    {editandoFicha ? 'Cerrar' : 'Editar'}
+                    {editandoFicha ? 'Cancelar' : 'Editar'}
                   </Text>
                 </Pressable>
               </View>
@@ -328,7 +307,7 @@ export function PantallaProducto({
               {editandoFicha ? (
                 <View style={[s.panelEdicion, { borderTopColor: paleta.separador }]}>
                   <Text style={[s.rotulo, { color: paleta.textoSecundario }]}>
-                    EDITAR FICHA Y CORREGIR STOCK
+                    EDITAR PRODUCTO Y CORREGIR EXISTENCIAS
                   </Text>
                   <TextInput
                     value={editNombre}
@@ -342,24 +321,15 @@ export function PantallaProducto({
                   />
                   <View style={s.filaDos}>
                     <View style={{ flex: 1 }}>
-                      <Text style={[s.miniLbl, { color: paleta.acento }]}>Stock disponible</Text>
+                      <Text style={[s.miniLbl, { color: paleta.textoTerciario }]}>Precio CLP</Text>
                       <TextInput
-                        value={editStock}
-                        onChangeText={(t) => setEditStock(t.replace(/[^0-9]/g, ''))}
-                        accessibilityLabel="Cantidad disponible corregida"
+                        value={editPrecio}
+                        onChangeText={(t) => setEditPrecio(t.replace(/[^0-9]/g, ''))}
                         keyboardType="number-pad"
-                        maxLength={6}
-                        placeholder="0"
-                        placeholderTextColor={paleta.textoTerciario}
+                        maxLength={8}
                         style={[
                           s.input,
-                          {
-                            backgroundColor: paleta.inputFondo,
-                            color: paleta.texto,
-                            borderWidth: 1.5,
-                            borderColor: paleta.acento,
-                            fontWeight: '800',
-                          },
+                          { backgroundColor: paleta.inputFondo, color: paleta.texto },
                         ]}
                       />
                     </View>
@@ -377,135 +347,26 @@ export function PantallaProducto({
                       />
                     </View>
                   </View>
-
-                  <View>
-                    <Text style={[s.miniLbl, { color: paleta.textoTerciario }]}>
-                      Precio unitario (CLP)
-                    </Text>
-                    <TextInput
-                      value={editPrecio}
-                      onChangeText={(t) => setEditPrecio(t.replace(/[^0-9]/g, ''))}
-                      keyboardType="number-pad"
-                      maxLength={8}
-                      style={[
-                        s.input,
-                        { backgroundColor: paleta.inputFondo, color: paleta.texto },
-                      ]}
-                    />
-                  </View>
-
-                  {editStock.trim() !== '' && Number(editStock) !== producto.stock ? (
-                    <View
-                      style={[
-                        s.cajaCorreccion,
-                        { backgroundColor: paleta.superficieElevada, borderColor: paleta.borde },
-                      ]}
-                    >
-                      <View style={s.filaResumenAjuste}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={[s.miniLbl, { color: paleta.textoTerciario }]}>
-                            CAMBIO DE STOCK
-                          </Text>
-                          <Text style={[s.cambioStockTxt, { color: paleta.texto }]}>
-                            {producto.stock} u. → {editStock} u.{' '}
-                            <Text style={{ color: paleta.acento }}>
-                              ({Number(editStock) - producto.stock > 0 ? '+' : ''}
-                              {Number(editStock) - producto.stock} u.)
-                            </Text>
-                          </Text>
-                        </View>
-                        <View style={[s.pillSinSalida, { backgroundColor: paleta.verdeSuave }]}>
-                          <Ionicons name="checkmark-circle" size={14} color={paleta.verde} />
-                          <Text style={[s.pillSinSalidaTxt, { color: paleta.verde }]}>
-                            Sin salida
-                          </Text>
-                        </View>
-                      </View>
-
-                      <SelectorSegmentado
-                        valor={modoCorreccion}
-                        onChange={setModoCorreccion}
-                        opciones={[
-                          { valor: 'conteo', etiqueta: 'Ajuste directo' },
-                          { valor: 'entrada', etiqueta: 'Corregir entrada' },
-                        ]}
-                      />
-
-                      {modoCorreccion === 'conteo' ? (
-                        <Text style={[s.ayudaAjuste, { color: paleta.textoSecundario }]}>
-                          Corrige directamente el stock disponible (ej. bajando de {producto.stock}{' '}
-                          a {editStock} u.). Queda registrado como{' '}
-                          <Text style={{ fontWeight: '700', color: paleta.texto }}>Ajuste</Text> y
-                          no afecta tus salidas ni ventas.
-                        </Text>
-                      ) : (
-                        <ElegirEntradaCorreccion
-                          codigo={codigo}
-                          seleccion={entradaCorregir}
-                          onElegir={setEntradaCorregir}
-                          diferencia={Number(editStock) - producto.stock}
-                        />
-                      )}
-
-                      <View style={{ gap: 6 }}>
-                        <Text style={[s.miniLbl, { color: paleta.textoTerciario }]}>
-                          MOTIVO (OPCIONAL · O ELIGE UNO RÁPIDO)
-                        </Text>
-                        <View style={s.chipsMotivo}>
-                          {MOTIVOS_RAPIDOS.map((m) => {
-                            const activo = motivoAjuste === m;
-                            return (
-                              <Pressable
-                                key={m}
-                                onPress={() => setMotivoAjuste(activo ? '' : m)}
-                                style={[
-                                  s.chipMotivo,
-                                  {
-                                    backgroundColor: activo
-                                      ? paleta.acentoSuave
-                                      : paleta.inputFondo,
-                                    borderColor: activo ? paleta.acento : paleta.borde,
-                                  },
-                                ]}
-                              >
-                                <Text
-                                  style={{
-                                    color: activo ? paleta.acento : paleta.textoSecundario,
-                                    fontSize: 12,
-                                    fontWeight: '700',
-                                  }}
-                                >
-                                  {m}
-                                </Text>
-                              </Pressable>
-                            );
-                          })}
-                        </View>
-                        <TextInput
-                          value={motivoAjuste}
-                          onChangeText={setMotivoAjuste}
-                          maxLength={160}
-                          accessibilityLabel="Motivo del ajuste"
-                          placeholder="Ej.: anoté 20 entradas por error en vez de 15"
-                          placeholderTextColor={paleta.textoTerciario}
-                          style={[
-                            s.input,
-                            { backgroundColor: paleta.inputFondo, color: paleta.texto },
-                          ]}
-                        />
-                      </View>
-                    </View>
-                  ) : null}
-
-                  {error ? (
-                    <Text accessibilityRole="alert" style={{ color: paleta.rojo, fontSize: 13 }}>
-                      {error}
-                    </Text>
-                  ) : null}
+                  <Text style={{ color: paleta.texto }}>Cantidad disponible corregida</Text>
+                  <TextInput value={editStock} editable={!ocupado} onChangeText={(t) => setEditStock(t.replace(/[^0-9]/g, ''))}
+                    accessibilityLabel="Cantidad disponible corregida" keyboardType="number-pad" maxLength={16}
+                    style={[s.input, { backgroundColor: paleta.inputFondo, color: paleta.texto }]} />
+                  <ElegirEntradaCorreccion codigo={codigo} seleccion={entradaCorregir}
+                    onElegir={setEntradaCorregir} deshabilitado={ocupado}
+                    diferencia={editStock.trim() && Number.isSafeInteger(Number(editStock)) ? Number(editStock) - producto.stock : null} />
+                  <Text style={{ color: paleta.acento }}>{Number.isSafeInteger(stockEditado)
+                    ? `Stock: ${producto.stock} → ${stockEditado} u. Las salidas no cambian.`
+                    : 'Escribe la cantidad disponible correcta.'}</Text>
+                    <Text style={{ color: paleta.texto }}>Motivo (obligatorio si cambias la cantidad)</Text>
+                    <TextInput value={motivoAjuste} onChangeText={setMotivoAjuste} maxLength={160}
+                      editable={!ocupado} accessibilityLabel="Motivo obligatorio de la corrección" placeholder="Ej.: anoté 20 y se recibieron 15"
+                      placeholderTextColor={paleta.textoTerciario}
+                      style={[s.input, { backgroundColor: paleta.inputFondo, color: paleta.texto }]} />
+                  {error ? <Text accessibilityRole="alert" style={{ color: paleta.rojo }}>{error}</Text> : null}
                   <Boton
                     titulo="Guardar cambios"
                     onPress={guardarEdicion}
-                    deshabilitado={ocupado}
+                    deshabilitado={ocupado || !correccionValida}
                     compacto
                   />
                   <Boton
@@ -632,14 +493,14 @@ export function PantallaProducto({
                   titulo={`+ Entrada (${cantNum || 0})`}
                   onPress={() => mover('IN')}
                   estilo="exito"
-                  deshabilitado={ocupado}
+                  deshabilitado={ocupado || editandoFicha}
                   ancho="48.5%"
                 />
                 <Boton
                   titulo={`− Salida (${cantNum || 0})`}
                   onPress={() => mover('OUT')}
                   estilo="salida"
-                  deshabilitado={ocupado || producto.stock === 0}
+                  deshabilitado={ocupado || editandoFicha || producto.stock === 0}
                   ancho="48.5%"
                 />
               </View>
@@ -701,8 +562,8 @@ export function PantallaProducto({
                           {formatearFechaHoraSlash(m.fecha)}
                         </Text>
                       </View>
-                      <Text style={[s.movMonto, { color: m.tipo === 'ADJ' ? paleta.acento : paleta.texto }]}>
-                        {m.tipo === 'ADJ' ? 'Sin salida' : monto > 0 ? formatearCLP(monto) : '—'}
+                      <Text style={[s.movMonto, { color: paleta.texto }]}>
+                        {m.tipo === 'ADJ' ? 'Corrección' : monto > 0 ? formatearCLP(monto) : '—'}
                       </Text>
                     </View>
                   );
@@ -710,7 +571,7 @@ export function PantallaProducto({
               )}
               <Boton titulo="Ver historial completo y elegir fechas" estilo="secundario" onPress={onHistorial} />
             </View>
-          </Pressable>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -760,41 +621,7 @@ const s = StyleSheet.create({
   panelEdicion: {
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingTop: 12,
-    gap: 10,
-  },
-  cajaCorreccion: {
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 12,
-    gap: 10,
-  },
-  filaResumenAjuste: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     gap: 8,
-  },
-  cambioStockTxt: {
-    fontSize: 16,
-    fontWeight: '800',
-    fontVariant: ['tabular-nums'],
-  },
-  pillSinSalida: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-  },
-  pillSinSalidaTxt: { fontSize: 11.5, fontWeight: '800' },
-  ayudaAjuste: { fontSize: 12.5, lineHeight: 18 },
-  chipsMotivo: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chipMotivo: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
   },
   rotulo: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6 },
   miniLbl: { fontSize: 11, fontWeight: '600', marginBottom: 4 },

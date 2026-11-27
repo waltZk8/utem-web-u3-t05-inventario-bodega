@@ -144,7 +144,7 @@ export function coloresEstado(p: Paleta) {
 }
 
 export const TOQUE_MINIMO = 48;
-export const VERSION_APP = '1.6.0';
+export const VERSION_APP = '1.6.1';
 
 const CLAVE_PREFS = 'prefs_ui_v1';
 
