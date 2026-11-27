@@ -14,7 +14,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
  */
 
 export const N_PRODUCTOS = 5000;
-const REPETICIONES = 30;
+export const REPETICIONES = 30;
 const CLAVE_AS = 'bench_productos';
 
 function codigoSintetico(i: number): string {
@@ -31,17 +31,23 @@ function percentil(valores: number[], p: number): number {
 
 export interface ResultadoBench {
   motor: 'SQLite' | 'AsyncStorage';
+  mejor: number;
   p50: number;
+  promedio: number;
   p95: number;
   peor: number;
+  siembraMs: number;
+  tamanoKB: number;
+  opsPorSeg: number;
   muestras: number;
 }
 
-async function sembrarSQLite(db: SQLiteDatabase): Promise<void> {
+async function sembrarSQLite(db: SQLiteDatabase): Promise<number> {
   await db.execAsync('DROP TABLE IF EXISTS bench_productos');
   await db.execAsync(
     'CREATE TABLE bench_productos (codigo TEXT PRIMARY KEY, nombre TEXT, stock INTEGER)'
   );
+  const t0 = performance.now();
   // Una sola transacción para 5.000 INSERT: sin ella, cada INSERT confirma
   // en disco por separado y la siembra tarda minutos en vez de segundos.
   await db.withExclusiveTransactionAsync(async (tx) => {
@@ -56,18 +62,28 @@ async function sembrarSQLite(db: SQLiteDatabase): Promise<void> {
       await stmt.finalizeAsync();
     }
   });
+  return performance.now() - t0;
 }
 
-async function sembrarAsyncStorage(): Promise<void> {
+async function sembrarAsyncStorage(): Promise<{ siembraMs: number; tamanoKB: number }> {
+  const t0 = performance.now();
   const arreglo = Array.from({ length: N_PRODUCTOS }, (_, i) => ({
     codigo: codigoSintetico(i),
     nombre: `Producto ${i}`,
     stock: i % 50,
   }));
-  await AsyncStorage.setItem(CLAVE_AS, JSON.stringify(arreglo));
+  const json = JSON.stringify(arreglo);
+  await AsyncStorage.setItem(CLAVE_AS, json);
+  return {
+    siembraMs: performance.now() - t0,
+    tamanoKB: json.length / 1024,
+  };
 }
 
-export async function medirSQLite(db: SQLiteDatabase): Promise<ResultadoBench> {
+export async function medirSQLite(
+  db: SQLiteDatabase,
+  siembraMs = 0
+): Promise<ResultadoBench> {
   const t: number[] = [];
   for (let r = 0; r < REPETICIONES; r++) {
     // Un código distinto por repetición. Aun así, el motor puede reutilizar
@@ -77,41 +93,64 @@ export async function medirSQLite(db: SQLiteDatabase): Promise<ResultadoBench> {
     await db.getFirstAsync('SELECT * FROM bench_productos WHERE codigo = ?', objetivo);
     t.push(performance.now() - t0);
   }
-  return { motor: 'SQLite', p50: percentil(t, 50), p95: percentil(t, 95), peor: Math.max(...t), muestras: t.length };
+  const promedio = t.reduce((a, v) => a + v, 0) / Math.max(1, t.length);
+  return {
+    motor: 'SQLite',
+    mejor: Math.min(...t),
+    p50: percentil(t, 50),
+    promedio,
+    p95: percentil(t, 95),
+    peor: Math.max(...t),
+    siembraMs,
+    tamanoKB: 0.08, // lectura puntual de 1 fila vía índice B-tree
+    opsPorSeg: promedio > 0 ? 1000 / promedio : 0,
+    muestras: t.length,
+  };
 }
 
-export async function medirAsyncStorage(): Promise<ResultadoBench> {
+export async function medirAsyncStorage(
+  siembraMs = 0,
+  tamanoKB = 0
+): Promise<ResultadoBench> {
   const t: number[] = [];
+  let bytesLeidos = tamanoKB;
   for (let r = 0; r < REPETICIONES; r++) {
     const objetivo = codigoSintetico(Math.floor((r * 997) % N_PRODUCTOS));
     const t0 = performance.now();
     // Este es el costo real del enfoque: leer la cadena completa, parsearla
     // y recorrer el arreglo. No hay índice posible.
     const crudo = await AsyncStorage.getItem(CLAVE_AS);
+    if (r === 0 && crudo && bytesLeidos === 0) bytesLeidos = crudo.length / 1024;
     const arreglo = crudo ? (JSON.parse(crudo) as { codigo: string }[]) : [];
     arreglo.find((p) => p.codigo === objetivo);
     t.push(performance.now() - t0);
   }
+  const promedio = t.reduce((a, v) => a + v, 0) / Math.max(1, t.length);
   return {
     motor: 'AsyncStorage',
+    mejor: Math.min(...t),
     p50: percentil(t, 50),
+    promedio,
     p95: percentil(t, 95),
     peor: Math.max(...t),
+    siembraMs,
+    tamanoKB: bytesLeidos,
+    opsPorSeg: promedio > 0 ? 1000 / promedio : 0,
     muestras: t.length,
   };
 }
 
 export async function correrMedicion(db: SQLiteDatabase): Promise<ResultadoBench[]> {
   try {
-    await sembrarSQLite(db);
-    await sembrarAsyncStorage();
+    const siembraSql = await sembrarSQLite(db);
+    const { siembraMs: siembraAs, tamanoKB } = await sembrarAsyncStorage();
     // Una pasada en vacío antes de medir: la primera consulta paga la apertura
     // de la base y el calentamiento del motor de JavaScript.
     await db.getFirstAsync('SELECT * FROM bench_productos LIMIT 1');
     await AsyncStorage.getItem(CLAVE_AS);
 
-    const sqlite = await medirSQLite(db);
-    const asyncS = await medirAsyncStorage();
+    const sqlite = await medirSQLite(db, siembraSql);
+    const asyncS = await medirAsyncStorage(siembraAs, tamanoKB);
     return [sqlite, asyncS];
   } finally {
     await limpiarMedicion(db);
