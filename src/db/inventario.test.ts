@@ -315,3 +315,32 @@ test('catálogo demo usa dígitos válidos y conserva saldos e historial al repe
     }
   } finally { sql.close(); }
 });
+
+test('ajuste directo con ajustarEntradas disminuye entradas (24→14 y múltiples entradas) manteniendo salidas intactas', async () => {
+  const sql = new DatabaseSync(':memory:');
+  const db = adaptar(sql);
+  try {
+    await migrar(db);
+    await crearProducto(db, { ...ficha, stockInicial: 20, precio: 1000 });
+    await registrarMovimiento(db, ficha.codigo, 'IN', 4, 'Recepción extra');
+    // Stock = 24, Entradas = 24, Salidas = 0
+    await actualizarProducto(db, {
+      codigo: ficha.codigo,
+      nombre: ficha.nombre,
+      minimo: ficha.minimo,
+      precio: 1000,
+      stock: 14,
+      stockAnterior: 24,
+      motivo: 'Error al ingresar',
+      ajustarEntradas: true,
+    });
+    const prod = await buscarPorCodigo(db, ficha.codigo);
+    const resumen = await obtenerResumenEjecutivo(db);
+    assert.equal(prod?.stock, 14);
+    assert.equal(resumen.entradasUnidades, 14);
+    assert.equal(resumen.entradasMontoCLP, 14000);
+    assert.equal(resumen.salidasUnidades, 0);
+    assert.equal(resumen.salidasMontoCLP, 0);
+  } finally { sql.close(); }
+});
+

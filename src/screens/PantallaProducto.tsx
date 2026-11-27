@@ -180,12 +180,13 @@ export function PantallaProducto({
         stock: nuevoStock,
         stockAnterior: producto.stock,
         motivo: motivoFinal,
+        ajustarEntradas: true,
       });
       setEditandoFicha(false);
       if (cambiaStock) {
         Vibration.vibrate(25);
         setAviso(
-          `Stock corregido de ${producto.stock} → ${nuevoStock} u. (registrado como ajuste, sin salida).`
+          `Stock y entradas ajustados de ${producto.stock} → ${nuevoStock} u. (sin registrar salida).`
         );
       } else {
         setAviso('Ficha del producto actualizada.');
@@ -416,14 +417,14 @@ export function PantallaProducto({
 
                         <Text style={[s.ayudaAjuste, { color: paleta.textoSecundario }]}>
                           {sube
-                            ? `Aumentando existencias de ${producto.stock} a ${nuevo} u.`
-                            : `Reduciendo existencias de ${producto.stock} a ${nuevo} u.`}
+                            ? `Aumenta el stock y las entradas de ${producto.stock} a ${nuevo} u.`
+                            : `Reduce el stock y las entradas de ${producto.stock} a ${nuevo} u.`}
                           {deltaCLP > 0
                             ? ` (${sube ? '+' : '−'}${formatearCLP(deltaCLP)} en capital). `
                             : '. '}
-                          Queda registrado como{' '}
-                          <Text style={{ fontWeight: '700', color: paleta.texto }}>Ajuste</Text> y
-                          no se contabiliza como salida ni venta.
+                          Las{' '}
+                          <Text style={{ fontWeight: '700', color: paleta.texto }}>salidas</Text> se
+                          mantienen intactas (no se registra ninguna venta).
                         </Text>
 
                         <View style={{ gap: 6 }}>

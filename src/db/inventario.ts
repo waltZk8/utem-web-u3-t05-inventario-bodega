@@ -162,7 +162,17 @@ export async function crearProducto(
 
 export async function actualizarProducto(
   db: SQLiteDatabase,
-  datos: { codigo: string; nombre: string; minimo: number; precio: number; stock?: number; stockAnterior?: number; motivo?: string; correccionEntrada?: { id: number; cantidadAnterior: number } }
+  datos: {
+    codigo: string;
+    nombre: string;
+    minimo: number;
+    precio: number;
+    stock?: number;
+    stockAnterior?: number;
+    motivo?: string;
+    correccionEntrada?: { id: number; cantidadAnterior: number };
+    ajustarEntradas?: boolean;
+  }
 ): Promise<void> {
   const { codigo, nombre, minimo, precio } = datos;
   if (!nombre.trim()) throw new Error('El nombre no puede quedar vacío.');
@@ -187,6 +197,8 @@ export async function actualizarProducto(
     if (cambiaStock && (!motivo || motivo.length > 160)) throw new Error('Indica el motivo del ajuste (1 a 160 caracteres).');
     let entrada: Movimiento | null = null;
     let nuevaCantidadEntrada: number | null = null;
+    let insertoEntradaNueva = false;
+
     if (cambiaStock && datos.correccionEntrada) {
       entrada = await tx.getFirstAsync<Movimiento>(
         `SELECT ${COLUMNAS_MOVIMIENTO} FROM movimientos m WHERE m.id = ? AND m.codigo = ? AND m.tipo = 'IN'`,
@@ -200,9 +212,64 @@ export async function actualizarProducto(
         throw new Error('La corrección dejaría esa entrada con cantidad negativa. Revisa la entrada elegida y el stock correcto.');
       }
       await tx.runAsync('UPDATE movimientos SET cantidad_corregida = ? WHERE id = ?', nuevaCantidadEntrada, entrada.id);
+    } else if (cambiaStock && datos.ajustarEntradas) {
+      // Ajusta automáticamente las entradas (de la más reciente a la más antigua)
+      // para reflejar la corrección en Entradas y Stock sin generar ninguna Salida.
+      const diff = stock - anterior.stock;
+      const entradas = await tx.getAllAsync<Movimiento>(
+        `SELECT ${COLUMNAS_MOVIMIENTO} FROM movimientos m WHERE m.codigo = ? AND m.tipo = 'IN' ORDER BY m.fecha DESC, m.id DESC`,
+        codigo
+      );
+      if (diff < 0) {
+        let porDescontar = Math.abs(diff);
+        let tocadas = 0;
+        let unica: Movimiento | null = null;
+        let unicaNueva: number | null = null;
+        for (const e of entradas) {
+          if (porDescontar <= 0) break;
+          if (e.cantidad <= 0) continue;
+          const descuento = Math.min(e.cantidad, porDescontar);
+          const nuevaCant = e.cantidad - descuento;
+          await tx.runAsync(
+            'UPDATE movimientos SET cantidad_corregida = ? WHERE id = ?',
+            nuevaCant,
+            e.id
+          );
+          porDescontar -= descuento;
+          tocadas += 1;
+          unica = e;
+          unicaNueva = nuevaCant;
+        }
+        if (tocadas === 1 && unica && unicaNueva !== null) {
+          entrada = unica;
+          nuevaCantidadEntrada = unicaNueva;
+        }
+      } else if (diff > 0) {
+        if (entradas[0]) {
+          entrada = entradas[0];
+          nuevaCantidadEntrada = entrada.cantidad + diff;
+          await tx.runAsync(
+            'UPDATE movimientos SET cantidad_corregida = ? WHERE id = ?',
+            nuevaCantidadEntrada,
+            entrada.id
+          );
+        } else {
+          await tx.runAsync(
+            `INSERT INTO movimientos (codigo, tipo, cantidad, precio_unitario, nota, fecha)
+             VALUES (?, 'IN', ?, ?, ?, ?)`,
+            codigo,
+            diff,
+            precio,
+            motivo,
+            Date.now()
+          );
+          insertoEntradaNueva = true;
+        }
+      }
     }
+
     await tx.runAsync('UPDATE productos SET nombre = ?, minimo = ?, precio = ?, stock = ? WHERE codigo = ?', nombre.trim(), minimo, precio, stock, codigo);
-    if (cambiaStock) await tx.runAsync(
+    if (cambiaStock && !insertoEntradaNueva) await tx.runAsync(
       `INSERT INTO movimientos(codigo,tipo,cantidad,precio_unitario,nota,fecha,stock_antes,stock_despues,
          entrada_corregida_id,entrada_cantidad_antes,entrada_cantidad_despues)
        VALUES (?, 'ADJ', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
