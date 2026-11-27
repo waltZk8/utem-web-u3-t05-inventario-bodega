@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { fechaLocal, formatearFechaSlash, leerFechaLocal, resolverPeriodo, type ModoPeriodo } from '../lib/periodo';
 import { usePeriodo } from '../periodo';
 import { useTema } from '../theme';

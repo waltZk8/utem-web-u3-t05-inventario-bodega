@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FlatList, Modal, Pressable, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { FlatList, Modal, Pressable, SafeAreaView, Text, View } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 import { listarMovimientosGlobales, type Movimiento } from '../db/inventario';
 import { formatearFechaHoraSlash } from '../lib/periodo';

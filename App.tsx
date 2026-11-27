@@ -4,11 +4,11 @@ import {
   Keyboard,
   Platform,
   Pressable,
+  SafeAreaView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SQLiteProvider, useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
@@ -239,7 +239,6 @@ export default function Raiz() {
   }, []);
 
   return (
-    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
     <ProveedorTema>
     <ProveedorPeriodo>
       {errorDb ? (
@@ -258,7 +257,6 @@ export default function Raiz() {
       )}
     </ProveedorPeriodo>
     </ProveedorTema>
-    </SafeAreaProvider>
   );
 }
 
