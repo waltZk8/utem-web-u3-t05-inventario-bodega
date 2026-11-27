@@ -157,7 +157,7 @@ td.c,th.c{text-align:center}
 <section class="slide" data-tag="1">
  <span class="badge">El problema</span>
  <h1 class="t">El cuaderno no sabe cuántos <em>quedan</em></h1>
- <p class="idea">En <b>[nombre del local]</b> el stock se controla a ojo. Dos cosas fallan siempre:
+ <p class="idea">En una bodega de ejemplo (caso hipotético) el stock se controla a ojo. Dos cosas fallan siempre:
   un producto se agota sin que nadie lo note hasta que un cliente lo pide, y otro se compra de más
   porque quedaban cajas atrás.</p>
  <div class="row c3">
@@ -193,7 +193,7 @@ td.c,th.c{text-align:center}
    <ul>
     <li><b>Sincronización entre teléfonos.</b> Necesita servidor, cuentas y resolución de
      conflictos sin conexión. Hacerlo a medias pierde datos en silencio.</li>
-    <li><b>Precios, ventas y proveedores.</b> Es otro producto.</li>
+    <li><b>Ventas contables y proveedores.</b> Se guarda precio unitario CLP y valorización de movimientos, pero no se implementa facturación.</li>
     <li><b>Quién hizo cada movimiento.</b> Ese campo convertiría la bitácora en un registro de
      actividad de trabajadores identificables.</li>
    </ul></div>
@@ -232,10 +232,10 @@ td.c,th.c{text-align:center}
     <p>Ningún archivo de <code>src/screens</code> ni de <code>src/components</code> contiene
      <code>SELECT</code>, <code>INSERT</code> ni <code>UPDATE</code>.</p></div>
    <div class="card t"><b class="h">Lo que eso compra</b>
-    <p>Cambiar de motor de almacenamiento obliga a modificar un solo archivo.</p></div>
+    <p>Las consultas del inventario se concentran en src/db. Sustituir SQLite también exige adaptar el proveedor, el esquema y la medición.</p></div>
    <div class="card v"><b class="h">Y además</b>
-    <p><code>src/lib</code> no importa React ni Expo, así que se prueba con Node sin levantar la
-     app. Por eso pudimos verificar el dígito verificador antes de escribir la primera pantalla.</p></div>
+    <p><code>gtin.ts</code> y <code>stock.ts</code> no importan React ni Expo y se prueban con Node sin levantar la
+     app. Esto permite verificar las reglas de forma independiente.</p></div>
   </div>
  </div>
 </section>
@@ -252,24 +252,24 @@ td.c,th.c{text-align:center}
    <tr><td>Almacenamiento</td><td><b>SQLite con clave primaria</b></td><td>AsyncStorage con arreglo JSON</td>
     <td>Medición M1</td></tr>
    <tr><td>Stock</td><td><b>Columna más bitácora</b></td><td>Calcularlo con <code>SUM()</code></td>
-    <td>Lectura en tiempo constante</td></tr>
+    <td>Lectura del saldo sin agregar el historial</td></tr>
    <tr><td>Estado del stock</td><td><b>Derivado en memoria</b></td><td>Columna guardada</td>
     <td>No se puede desincronizar</td></tr>
    <tr><td>Navegación</td><td><b>Unión discriminada propia</b></td><td>expo-router</td>
-    <td>Seis pantallas, flujo lineal</td></tr>
+    <td>Cinco pestañas y subvistas, sin enlaces profundos</td></tr>
    <tr><td>Tipos de código</td><td><b>ean13, ean8, upc_a</b></td><td>Los trece soportados</td>
     <td>Menos lecturas falsas</td></tr>
   </tbody>
  </table>
- <p class="note">De las seis, la segunda es la que se midió. Las otras se justifican por el caso.</p>
+ <p class="note">M1 permitirá contrastar la segunda decisión con números propios. La ejecución física y sus resultados están pendientes.</p>
 </section>
 
 <!-- 6 -->
 <section class="slide" data-tag="5">
  <span class="badge">Permisos</span>
  <h1 class="t">Un permiso rechazado no puede <em>romper la app</em></h1>
- <p class="idea">La ventana del sistema no deja cambiar su texto. Por eso la explicación va antes,
-  en una pantalla propia, y el permiso se pide cuando el usuario toca Escanear.</p>
+ <p class="idea">La pantalla propia explica el uso de la cámara antes del diálogo del sistema.
+  El permiso se solicita cuando el usuario decide continuar con la lectura.</p>
  <div class="row c21">
   <div>
    <svg viewBox="0 0 620 270" style="width:100%;height:auto">
@@ -355,7 +355,7 @@ td.c,th.c{text-align:center}
  <span class="badge">Validación</span>
  <h1 class="t">El dígito verificador filtra la <em>basura</em></h1>
  <p class="idea">Una etiqueta arrugada o con poca luz produce lecturas corruptas. Validar en
-  memoria cuesta microsegundos y <b>evita una consulta a la base por cada lectura basura</b>.</p>
+  memoria <b>evita una consulta a la base por cada lectura basura</b>.</p>
  <div class="row c21">
   <div>
    <pre><span class="c">// src/lib/gtin.ts · algoritmo módulo 10 de GS1</span>
@@ -406,7 +406,7 @@ td.c,th.c{text-align:center}
   <div style="display:grid;gap:10px">
    <div class="card"><b class="h">Por qué guardar el stock si existe la bitácora</b>
     <p>Calcularlo con <code>SUM()</code> es correcto el primer día y cada vez más lento, porque la
-     bitácora crece y nunca se reduce. La columna se lee en tiempo constante.</p></div>
+     bitácora puede crecer. Leer la columna evita agregar todos los movimientos en cada consulta; su duración debe medirse.</p></div>
    <div class="card t"><b class="h">Y cómo evitamos que se desincronicen</b>
     <p>Leer el stock, actualizarlo e insertar el movimiento van en una sola transacción exclusiva.
      Sin ella, dos escaneos rápidos leen el mismo stock y se pisan.</p></div>
@@ -443,14 +443,12 @@ td.c,th.c{text-align:center}
   </div>
   <div style="display:grid;gap:10px">
    <div class="card v"><b class="h">Color, texto y símbolo a la vez</b>
-    <p>Cerca del 8% de los hombres tiene alguna forma de daltonismo, y la pantalla se mira bajo la
-     luz de una bodega. Quien no distingue rojo de verde igual lee AGOTADO.</p></div>
+    <p>El color puede ser difícil de distinguir bajo la luz de una bodega o para una persona con daltonismo. Quien no distingue rojo de verde igual lee AGOTADO.</p></div>
    <div class="card t"><b class="h">Estado derivado, no guardado</b>
     <p><code>stock &lt;= 0</code> agotado · <code>stock &lt;= minimo</code> bajo · si no, en stock.
      Una columna extra habría que recalcularla en cada movimiento.</p></div>
-   <div class="card g"><b class="h">Área táctil de 48 dp</b>
-    <p>Sin alturas fijas: con el tamaño de letra del sistema aumentado el botón crece en vez de
-     cortar el texto.</p></div>
+   <div class="card g"><b class="h">Controles y tamaño de letra</b>
+    <p>El botón principal define un alto mínimo de 48 dp. Revisar el resto de controles con letra grande en el teléfono y registrar cualquier texto cortado.</p></div>
   </div>
  </div>
 </section>
@@ -486,9 +484,9 @@ td.c,th.c{text-align:center}
 <!-- 12 -->
 <section class="slide" data-tag="11">
  <span class="badge">Medición M1</span>
- <h1 class="t">La decisión se <em>midió</em>, no se supuso</h1>
+ <h1 class="t">Cómo <em>medir</em> la decisión</h1>
  <p class="idea">Buscar un producto por código entre <b>5.000</b>, 30 veces por motor, con un código
-  distinto cada vez. Ejecutado en <b>iPhone físico</b>, con validación cruzada en emulador Android.</p>
+  distinto cada vez. <b>Pendiente de ejecutar y registrar en un teléfono físico.</b> No se adjunta evidencia de dispositivo en este repositorio.</p>
  <div class="row c21">
   <div style="display:grid;gap:10px">
    <div>
@@ -515,8 +513,7 @@ td.c,th.c{text-align:center}
      seguidas, y la espera se multiplica por cuarenta.</p></div>
    <div class="card s"><b class="h">Transparencia metodológica</b>
     <p>El emulador Android solo se usa para validar layout y <code>BackHandler</code>, nunca para
-     tiempos. En iPhone bajo Expo Go ambos motores comparten el mismo hardware y entorno, haciendo
-     comparable la razón relativa.</p></div>
+     tiempos. En iPhone bajo Expo Go ambos motores comparten el mismo hardware y entorno, pero el modo desarrollo puede alterar los tiempos. Registrar el entorno y repetir en release.</p></div>
   </div>
  </div>
 </section>
@@ -533,8 +530,7 @@ td.c,th.c{text-align:center}
    <p>Explicación previa, rechazo recuperable, rechazo definitivo con salida a Ajustes y ruta
     alternativa ocuparon más código que la pantalla de la cámara.</p></div>
   <div class="card v"><b class="h">3 · Medir cambia el argumento</b>
-   <p>SQLite sobre AsyncStorage se podía defender con teoría. La medición la convierte en un número
-    tomado en el teléfono que va a usar el bodeguero.</p></div>
+   <p>SQLite sobre AsyncStorage se podía defender con teoría. La medición pendiente permitirá contrastar esa decisión con resultados propios en el teléfono.</p></div>
  </div>
  <div class="card s" style="margin-top:14px"><b class="h">Lo que queda abierto</b>
   <p>La sincronización entre dispositivos, que el local va a pedir apenas tenga dos personas moviendo
@@ -542,7 +538,7 @@ td.c,th.c{text-align:center}
    modifican el mismo producto, y esa pregunta es de arquitectura distribuida más que de desarrollo
    móvil.</p></div>
  <p class="note">Walter Olarte · Ulises Estepa · Camilo Arteaga · UTEM 2026 ·
-  Repositorio: <a href="https://github.com/waltZk8/utem-web-u3-t05-inventario-bodega" target="_blank" rel="noopener" style="color:var(--blue);font-weight:700">github.com/waltZk8/utem-web-u3-t05-inventario-bodega</a></p>
+  Repositorio: <a href="https://github.com/HectorEstepa/utem-web-u3-t05-inventario-bodega" target="_blank" rel="noopener" style="color:var(--blue);font-weight:700">github.com/HectorEstepa/utem-web-u3-t05-inventario-bodega</a></p>
 </section>
 
 <div class="hint">← → para navegar · F pantalla completa · P imprimir o guardar en PDF</div>

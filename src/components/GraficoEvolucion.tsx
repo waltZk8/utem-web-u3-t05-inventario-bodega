@@ -30,7 +30,7 @@ export function GraficoEvolucion({ datos }: { datos: Evolucion }) {
   const [tipo, setTipo] = useState<'entradas' | 'salidas'>('entradas');
 
   const color = tipo === 'entradas' ? c.verde : c.salida;
-  const fondoSuave = tipo === 'entradas' ? c.verdeSuave : c.rojoSuave;
+  const fondoSuave = tipo === 'entradas' ? c.verdeSuave : c.salidaSuave;
   const etiqueta = tipo === 'entradas' ? 'Entradas' : 'Salidas';
   const { puntos } = datos;
   const i = Math.max(0, Math.min(indice ?? puntos.length - 1, puntos.length - 1));
@@ -40,7 +40,7 @@ export function GraficoEvolucion({ datos }: { datos: Evolucion }) {
   const derecha = Math.max(izquierda + 1, ancho - 12);
   const arriba = 16;
   const abajo = 186;
-  const maximo = Math.max(1, ...puntos.map((p) => p[tipo]));
+  const maximo = Math.max(0, ...puntos.map((p) => p[tipo]));
   const techo = maximo <= 4 ? 4 : Math.ceil(maximo / 4) * 4;
   const x = (n: number) =>
     puntos.length <= 1

@@ -1,270 +1,81 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { FlatList, Modal, Pressable, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSQLiteContext } from 'expo-sqlite';
 import { listarMovimientosGlobales, type Movimiento } from '../db/inventario';
-import { formatearFechaHoraSlash, formatearFechaSlash } from '../lib/periodo';
+import { formatearFechaHoraSlash } from '../lib/periodo';
 import { useTema } from '../theme';
 import { Boton } from './Boton';
 
-export function ElegirEntradaCorreccion({
-  codigo,
-  seleccion,
-  diferencia,
-  onElegir,
-}: {
-  codigo: string;
-  seleccion: Movimiento | null;
-  diferencia: number;
-  onElegir: (m: Movimiento) => void;
+export function ElegirEntradaCorreccion({ codigo, seleccion, diferencia, onElegir, deshabilitado = false }: {
+  codigo: string; seleccion: Movimiento | null; diferencia: number | null;
+  onElegir: (m: Movimiento | null) => void; deshabilitado?: boolean;
 }) {
-  const db = useSQLiteContext();
-  const { paleta: c } = useTema();
+  const db = useSQLiteContext(); const { paleta: c } = useTema();
   const [entradas, setEntradas] = useState<Movimiento[]>([]);
   const [abierto, setAbierto] = useState(false);
   const [hayMas, setHayMas] = useState(false);
-  const [ocupado, setOcupado] = useState(false);
+  const [ocupado, setOcupado] = useState(true);
   const [error, setError] = useState('');
   const [reintento, setReintento] = useState(0);
-  const generacion = useRef(0);
-  const cargando = useRef(false);
-
+  const generacion = useRef(0); const cargando = useRef(false);
   useEffect(() => {
-    const n = ++generacion.current;
-    cargando.current = true;
-    setOcupado(true);
-    setError('');
-    setEntradas([]);
+    const n = ++generacion.current; cargando.current = true; setOcupado(true); setError(''); setEntradas([]); setHayMas(false);
+    onElegir(null);
     listarMovimientosGlobales(db, { tipo: 'IN', codigo, limite: 51 })
       .then((filas) => {
         if (n !== generacion.current) return;
-        const lista = filas.slice(0, 50);
-        setEntradas(lista);
-        setHayMas(filas.length > 50);
-        // Autoselecciona la entrada reciente compatible para evitar pasos extra
-        if (!seleccion && lista.length > 0) {
-          const compatible = lista.find((m) => m.cantidad + diferencia >= 0) ?? lista[0];
-          if (compatible) onElegir(compatible);
-        }
+        setEntradas(filas.slice(0, 50)); setHayMas(filas.length > 50);
+        if (filas.length === 1) onElegir(filas[0]!);
       })
-      .catch((e) => {
-        if (n === generacion.current) {
-          setError(e instanceof Error ? e.message : 'No se pudieron consultar las entradas.');
-        }
-      })
-      .finally(() => {
-        if (n === generacion.current) {
-          cargando.current = false;
-          setOcupado(false);
-        }
-      });
-    return () => {
-      generacion.current++;
-    };
-  }, [db, codigo, reintento]);
-
+      .catch((e) => { if (n === generacion.current) setError(e instanceof Error ? e.message : 'No se pudieron consultar las entradas.'); })
+      .finally(() => { if (n === generacion.current) { cargando.current = false; setOcupado(false); } });
+    return () => { generacion.current++; };
+  }, [db, codigo, reintento, onElegir]);
   const mas = async () => {
-    const ultimo = entradas.at(-1);
-    if (!ultimo || cargando.current) return;
-    cargando.current = true;
-    setOcupado(true);
-    setError('');
-    const n = generacion.current;
+    const ultimo = entradas.at(-1); if (!ultimo || cargando.current || !hayMas) return;
+    cargando.current = true; setOcupado(true); setError(''); const n = generacion.current;
     try {
-      const filas = await listarMovimientosGlobales(db, {
-        tipo: 'IN',
-        codigo,
-        limite: 51,
-        antesDe: { fecha: ultimo.fecha, id: ultimo.id },
-      });
-      if (n === generacion.current) {
-        setEntradas((prev) => [...prev, ...filas.slice(0, 50)]);
-        setHayMas(filas.length > 50);
-      }
-    } catch (e) {
-      if (n === generacion.current) {
-        setError(e instanceof Error ? e.message : 'No se pudo continuar.');
-      }
-    } finally {
-      if (n === generacion.current) {
-        cargando.current = false;
-        setOcupado(false);
-      }
-    }
+      const filas = await listarMovimientosGlobales(db, { tipo: 'IN', codigo, limite: 51, antesDe: { fecha: ultimo.fecha, id: ultimo.id } });
+      if (n === generacion.current) { setEntradas((prev) => [...prev, ...filas.slice(0, 50)]); setHayMas(filas.length > 50); }
+    } catch (e) { if (n === generacion.current) setError(e instanceof Error ? e.message : 'No se pudo continuar.'); }
+    finally { if (n === generacion.current) { cargando.current = false; setOcupado(false); } }
   };
-
-  const cantidadFinal = seleccion ? seleccion.cantidad + diferencia : 0;
-  const esInvalida = seleccion !== null && cantidadFinal < 0;
-
-  return (
-    <View style={s.contenedor}>
-      <Text style={[s.ayuda, { color: c.textoSecundario }]}>
-        Corrige una entrada equivocada: ajusta la cantidad original de esa recepción y el stock
-        actual, sin registrar ninguna salida.
-      </Text>
-
-      {seleccion ? (
-        <View
-          style={[
-            s.tarjetaSel,
-            {
-              backgroundColor: esInvalida ? c.rojoSuave : c.acentoSuave,
-              borderColor: esInvalida ? c.rojo : c.acento,
-            },
-          ]}
-        >
-          <View style={s.filaTop}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-              <Ionicons
-                name={esInvalida ? 'alert-circle' : 'checkmark-circle'}
-                size={16}
-                color={esInvalida ? c.rojo : c.acento}
-              />
-              <Text style={[s.selTitulo, { color: c.texto }]}>
-                Entrada #{seleccion.id} · {formatearFechaSlash(seleccion.fecha)}
-              </Text>
-            </View>
-            {entradas.length > 1 ? (
-              <Pressable onPress={() => setAbierto((v) => !v)} hitSlop={8}>
-                <Text style={[s.linkCambiar, { color: c.acento }]}>
-                  {abierto ? 'Ocultar' : 'Cambiar'}
-                </Text>
-              </Pressable>
-            ) : null}
-          </View>
-
-          <Text
-            style={[
-              s.selCambio,
-              { color: esInvalida ? c.rojo : c.acento },
-            ]}
-          >
-            Entrada: {seleccion.cantidad} u. → {cantidadFinal} u.
-          </Text>
-
-          <Text style={[s.selNota, { color: esInvalida ? c.rojo : c.textoSecundario }]}>
-            {esInvalida
-              ? 'Esta entrada no alcanza para esa reducción. Elige otra entrada o usa "Ajuste directo".'
-              : 'Se actualiza el total de entradas y el stock. Las salidas quedan en $ 0 sin cambios.'}
-          </Text>
+  const nuevaCantidad = seleccion && diferencia !== null ? seleccion.cantidad + diferencia : null;
+  const botonElegir = <Boton estilo="secundario" titulo={seleccion ? `Entrada #${seleccion.id} · cambiar` : 'Elegir entrada a corregir'}
+    deshabilitado={deshabilitado || (ocupado && !entradas.length)} onPress={() => setAbierto(true)} />;
+  const mensajeError = error ? <View style={{ gap: 8 }}>
+    <Text accessibilityRole="alert" style={{ color: c.rojo }}>{error}</Text>
+    <Boton titulo="Reintentar consulta" estilo="secundario" deshabilitado={ocupado} onPress={() => setReintento((v) => v + 1)} />
+  </View> : null;
+  return <View style={{ gap: 10 }}>
+    <Text style={{ color: c.texto, fontWeight: '700' }}>Entrada que se corregirá</Text>
+    {ocupado && !entradas.length ? <Text style={{ color: c.textoSecundario }}>Consultando entradas…</Text> : null}
+    {seleccion ? <View style={{ padding: 12, gap: 4, borderRadius: 12, backgroundColor: c.acentoSuave }}>
+      <Text style={{ color: c.texto }}>Entrada #{seleccion.id} · {formatearFechaHoraSlash(seleccion.fecha)}</Text>
+      <Text style={{ color: c.textoSecundario }}>{seleccion.nota || 'Sin nota'}</Text>
+      {nuevaCantidad !== null ? <Text style={{ color: nuevaCantidad < 0 ? c.rojo : c.acento, fontWeight: '800' }}>Cantidad de entrada: {seleccion.cantidad} → {nuevaCantidad} u.</Text> : null}
+      {nuevaCantidad !== null && nuevaCantidad < 0 ? <Text accessibilityRole="alert" style={{ color: c.rojo }}>Esta corrección supera la cantidad de esa entrada. Revisa la cantidad o elige otra entrada.</Text> : null}
+    </View> : !ocupado && !entradas.length && !error ? <Text style={{ color: c.textoSecundario }}>No hay entradas que corregir. Puedes guardar nombre, precio y mínimo sin cambiar la cantidad.</Text> : null}
+    {entradas.length > 1 || hayMas ? botonElegir : !seleccion && entradas.length ? botonElegir : null}
+    {!abierto ? mensajeError : null}
+    <Modal visible={abierto} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setAbierto(false)}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: c.fondo }}>
+        <View style={{ padding: 16, gap: 12 }}>
+          <Text style={{ color: c.texto, fontSize: 22, fontWeight: '800' }}>Elegir entrada</Text>
+          <Text style={{ color: c.textoSecundario }}>Elige la recepción mal digitada por su fecha y nota. La corrección no genera despachos.</Text>
+          <Boton titulo="Volver sin cambiar selección" estilo="secundario" onPress={() => setAbierto(false)} />
         </View>
-      ) : !ocupado && !entradas.length && !error ? (
-        <View style={[s.vacioBox, { backgroundColor: c.inputFondo }]}>
-          <Text style={[s.ayuda, { color: c.textoSecundario }]}>
-            Este producto aún no tiene entradas registradas. Usa la pestaña{' '}
-            <Text style={{ fontWeight: '800', color: c.texto }}>Ajuste directo</Text> para cambiar
-            el stock.
-          </Text>
-        </View>
-      ) : (
-        <Boton
-          estilo="secundario"
-          compacto
-          titulo={ocupado ? 'Buscando entradas…' : 'Elegir entrada a corregir'}
-          onPress={() => setAbierto((v) => !v)}
-        />
-      )}
-
-      {abierto ? (
-        <View style={[s.listaBox, { borderColor: c.borde, backgroundColor: c.superficie }]}>
-          <ScrollView nestedScrollEnabled style={{ maxHeight: 210 }}>
-            {entradas.map((m) => {
-              const activa = seleccion?.id === m.id;
-              return (
-                <Pressable
-                  key={m.id}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: activa }}
-                  onPress={() => {
-                    onElegir(m);
-                    setAbierto(false);
-                  }}
-                  style={[
-                    s.filaLista,
-                    {
-                      borderBottomColor: c.separador,
-                      backgroundColor: activa ? c.acentoSuave : 'transparent',
-                    },
-                  ]}
-                >
-                  <View style={s.filaTop}>
-                    <Text style={[s.listaTitulo, { color: c.texto }]}>
-                      Entrada #{m.id} · {m.cantidad} u.
-                    </Text>
-                    {activa ? (
-                      <Ionicons name="checkmark" size={16} color={c.acento} />
-                    ) : null}
-                  </View>
-                  <Text style={[s.listaMeta, { color: c.textoSecundario }]}>
-                    {formatearFechaHoraSlash(m.fecha)} · {m.nota || 'Sin nota'}
-                  </Text>
-                </Pressable>
-              );
-            })}
-            {hayMas ? (
-              <View style={{ padding: 10 }}>
-                <Boton
-                  titulo="Cargar más entradas"
-                  estilo="secundario"
-                  compacto
-                  deshabilitado={ocupado}
-                  onPress={mas}
-                />
-              </View>
-            ) : null}
-          </ScrollView>
-        </View>
-      ) : null}
-
-      {error ? (
-        <>
-          <Text accessibilityRole="alert" style={{ color: c.rojo, fontSize: 13 }}>
-            {error}
-          </Text>
-          <Boton
-            titulo="Reintentar entradas"
-            estilo="secundario"
-            compacto
-            onPress={() => setReintento((v) => v + 1)}
-          />
-        </>
-      ) : null}
-    </View>
-  );
+        <FlatList data={entradas} keyExtractor={(m) => String(m.id)} contentContainerStyle={{ padding: 16, gap: 8 }}
+          renderItem={({ item: m }) => <Pressable accessibilityRole="button" accessibilityState={{ selected: seleccion?.id === m.id }}
+            onPress={() => { onElegir(m); setAbierto(false); }}
+            style={{ minHeight: 56, padding: 14, gap: 6, borderWidth: 1, borderRadius: 12, borderColor: seleccion?.id === m.id ? c.acento : c.borde, backgroundColor: c.superficie }}>
+            <Text style={{ color: c.texto, fontWeight: '700' }}>Entrada #{m.id} · {m.cantidad} u.{seleccion?.id === m.id ? ' · seleccionada' : ''}</Text>
+            <Text style={{ color: c.textoSecundario }}>{formatearFechaHoraSlash(m.fecha)}</Text>
+            <Text style={{ color: c.textoSecundario }}>{m.nota || 'Sin nota'}</Text>
+          </Pressable>}
+          ListFooterComponent={<View style={{ gap: 12 }}>{mensajeError}{hayMas ? <Boton titulo={ocupado ? 'Cargando…' : 'Cargar más entradas'} estilo="secundario" deshabilitado={ocupado} onPress={mas} /> : null}</View>} />
+      </SafeAreaView>
+    </Modal>
+  </View>;
 }
-
-const s = StyleSheet.create({
-  contenedor: { gap: 10 },
-  ayuda: { fontSize: 12.5, lineHeight: 18 },
-  tarjetaSel: {
-    padding: 12,
-    gap: 5,
-    borderRadius: 14,
-    borderWidth: 1,
-  },
-  filaTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  selTitulo: { fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  linkCambiar: { fontSize: 12.5, fontWeight: '800' },
-  selCambio: { fontSize: 15, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  selNota: { fontSize: 12, lineHeight: 17 },
-  vacioBox: { padding: 12, borderRadius: 12 },
-  listaBox: {
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: 'hidden',
-  },
-  filaLista: {
-    minHeight: 48,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 3,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  listaTitulo: { fontSize: 13.5, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  listaMeta: { fontSize: 12, fontVariant: ['tabular-nums'] },
-});
